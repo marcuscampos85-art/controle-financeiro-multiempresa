@@ -616,6 +616,7 @@ td.checkcol,th.checkcol{width:34px;text-align:center;}
           <input type="file" id="filePlanoContas" accept=".txt" style="display:none" onchange="handlePlanoContasUpload(event)">
           <button class="btn btn-ghost btn-sm" onclick="document.getElementById('filePlanoContas').click()">Carregar arquivo .txt</button>
           <button class="btn btn-primary btn-sm" onclick="importarPlanoContas()">Importar plano de contas</button>
+          <button class="btn btn-primary btn-sm" onclick="openModalConta()">+ Nova conta</button>
           <button class="btn btn-ghost btn-sm" id="btnLimparPlano" onclick="limparPlanoContas()">Limpar plano de contas</button>
           <span id="planoContasResumo" style="font-size:12.5px;color:var(--text-soft);"></span>
         </div>
@@ -817,6 +818,32 @@ td.checkcol,th.checkcol{width:34px;text-align:center;}
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="salvarLancamento()">Salvar lançamento</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL NOVA CONTA CONTÁBIL -->
+<div class="modal-overlay" id="modalContaOverlay">
+  <div class="modal">
+    <h3>Nova conta contábil</h3>
+    <div class="form-row">
+      <label>Código (use pontos para indicar o nível, ex: 3.2.06)</label>
+      <input type="text" id="fContaCodigo" placeholder="Ex: 3.2.06">
+    </div>
+    <div class="form-row">
+      <label>Nome da conta</label>
+      <input type="text" id="fContaNome" placeholder="Ex: Despesas com Combustível">
+    </div>
+    <div class="form-row">
+      <label>Tipo</label>
+      <select id="fContaTipo" class="select" style="width:100%;">
+        <option value="A">Analítica (recebe lançamento, aparece nas regras)</option>
+        <option value="S">Sintética (agrupadora, não recebe lançamento)</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModalConta()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarNovaConta()">Adicionar conta</button>
     </div>
   </div>
 </div>
@@ -1585,6 +1612,32 @@ function importarPlanoContas(){
   renderPlanoContas();
   renderRegrasContabilizacao();
   showToast(`${contas.length} conta(s) importada(s) para o plano de contas.`);
+}
+function openModalConta(){
+  document.getElementById('fContaCodigo').value = '';
+  document.getElementById('fContaNome').value = '';
+  document.getElementById('fContaTipo').value = 'A';
+  document.getElementById('modalContaOverlay').classList.add('open');
+}
+function closeModalConta(){
+  document.getElementById('modalContaOverlay').classList.remove('open');
+}
+function salvarNovaConta(){
+  const codigoFormatado = document.getElementById('fContaCodigo').value.trim();
+  const nome = document.getElementById('fContaNome').value.trim();
+  const tipo = document.getElementById('fContaTipo').value;
+  if(!codigoFormatado || !nome){ showToast('Preencha o código e o nome da conta.'); return; }
+  if(!/^\d+(\.\d+)*$/.test(codigoFormatado)){ showToast('Código inválido. Use apenas números separados por ponto (ex: 3.2.06).'); return; }
+  const codigo = codigoFormatado.replace(/\./g,'');
+  state.planoContas = state.planoContas || [];
+  if(state.planoContas.some(c=>c.codigo===codigo)){ showToast('Já existe uma conta cadastrada com esse código.'); return; }
+  const nivel = codigoFormatado.split('.').length;
+  state.planoContas.push({ codigo, codigoFormatado, nome, tipo, nivel });
+  saveData();
+  closeModalConta();
+  renderPlanoContas();
+  renderRegrasContabilizacao();
+  showToast('Conta adicionada ao plano de contas.');
 }
 let confirmandoLimpezaPlano = false;
 function limparPlanoContas(){
