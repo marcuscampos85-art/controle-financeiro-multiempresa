@@ -398,6 +398,7 @@ td.checkcol,th.checkcol{width:34px;text-align:center;}
       <button class="navlink" data-page="receber"><span class="dot"></span>Contas a Receber</button>
       <button class="navlink" data-page="custos"><span class="dot"></span>Custos &amp; Despesas</button>
       <button class="navlink" data-page="notas"><span class="dot"></span>Notas Fiscais</button>
+      <button class="navlink" data-page="contabilizacao"><span class="dot"></span>Contabilização</button>
       <button class="navlink" data-page="conciliacao"><span class="dot"></span>Conciliação Bancária</button>
       <button class="navlink" data-page="exportar"><span class="dot"></span>Exportar</button>
     </nav>
@@ -598,6 +599,64 @@ td.checkcol,th.checkcol{width:34px;text-align:center;}
       <div id="tabelaNotas"></div>
     </section>
 
+    <!-- CONTABILIZAÇÃO -->
+    <section class="page" id="page-contabilizacao">
+      <div class="page-head">
+        <div>
+          <div class="page-title">Contabilização</div>
+          <div class="page-sub">Cadastre o plano de contas da empresa e defina as regras usadas para gerar débito/crédito na exportação.</div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:20px;">
+        <div class="panel-title">Plano de Contas</div>
+        <div class="panel-sub">Cole abaixo o plano de contas padrão (arquivo texto exportado do sistema contábil) ou envie um .txt. Contas tipo "S" são sintéticas (agrupadoras, não recebem lançamento); contas tipo "A" são analíticas e ficam disponíveis nas regras abaixo.</div>
+        <textarea id="planoContasTexto" rows="6" style="width:100%;font-family:var(--font-mono);font-size:11.5px;padding:10px;border:1px solid var(--line);border-radius:6px;margin-bottom:10px;background:#fff;color:var(--text);" placeholder="Cole aqui o conteúdo do plano de contas..."></textarea>
+        <div class="export-controls" style="margin-bottom:14px;">
+          <input type="file" id="filePlanoContas" accept=".txt" style="display:none" onchange="handlePlanoContasUpload(event)">
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('filePlanoContas').click()">Carregar arquivo .txt</button>
+          <button class="btn btn-primary btn-sm" onclick="importarPlanoContas()">Importar plano de contas</button>
+          <button class="btn btn-ghost btn-sm" id="btnLimparPlano" onclick="limparPlanoContas()">Limpar plano de contas</button>
+          <span id="planoContasResumo" style="font-size:12.5px;color:var(--text-soft);"></span>
+        </div>
+        <input class="input search-input" id="buscaPlanoContas" placeholder="Buscar conta por código ou nome..." oninput="renderPlanoContas()" style="margin-bottom:12px;max-width:340px;display:block;">
+        <div style="max-height:340px;overflow-y:auto;" id="tabelaPlanoContas"></div>
+      </div>
+
+      <div class="panel" style="margin-bottom:20px;">
+        <div class="panel-title">Conta padrão de Caixa/Bancos</div>
+        <div class="panel-sub">Usada como contrapartida nas contas a pagar e a receber que não têm regra específica de categoria.</div>
+        <select class="select" id="contaPadraoCaixa" style="min-width:340px;" onchange="salvarRegrasContabilizacao()"></select>
+      </div>
+
+      <div class="panel" style="margin-bottom:20px;">
+        <div class="panel-title">Regras — Contas a Pagar</div>
+        <div class="panel-sub">Conta de débito por categoria (o crédito usa a conta padrão de Caixa/Bancos acima).</div>
+        <div id="regrasPagarWrap"></div>
+      </div>
+
+      <div class="panel" style="margin-bottom:20px;">
+        <div class="panel-title">Regras — Contas a Receber</div>
+        <div class="panel-sub">Conta de crédito por categoria (o débito usa a conta padrão de Caixa/Bancos acima).</div>
+        <div id="regrasReceberWrap"></div>
+      </div>
+
+      <div class="panel" style="margin-bottom:20px;">
+        <div class="panel-title">Regras — Notas Fiscais</div>
+        <div class="panel-sub">Aplicadas aos lançamentos gerados a partir de notas fiscais importadas (nota de entrada = compra, vira conta a pagar; nota de saída = venda, vira conta a receber).</div>
+        <div class="form-2col" style="margin-bottom:6px;">
+          <div class="form-row"><label>Nota de Entrada — Conta Débito</label><select class="select" id="notaEntradaDebito" onchange="salvarRegrasContabilizacao()"></select></div>
+          <div class="form-row"><label>Nota de Entrada — Conta Crédito</label><select class="select" id="notaEntradaCredito" onchange="salvarRegrasContabilizacao()"></select></div>
+        </div>
+        <div class="form-2col">
+          <div class="form-row"><label>Nota de Saída — Conta Débito</label><select class="select" id="notaSaidaDebito" onchange="salvarRegrasContabilizacao()"></select></div>
+          <div class="form-row"><label>Nota de Saída — Conta Crédito</label><select class="select" id="notaSaidaCredito" onchange="salvarRegrasContabilizacao()"></select></div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" onclick="salvarRegrasContabilizacao()">Salvar regras de contabilização</button>
+    </section>
+
     <!-- CONCILIAÇÃO -->
     <section class="page" id="page-conciliacao">
       <div class="page-head">
@@ -760,7 +819,7 @@ const db = firebase.firestore();
 </script>
 <script>
 /* ============ ESTADO E PERSISTÊNCIA ============ */
-let state = { lancamentos: [], extrato: [], notasFiscais: [], nextLancId: 1, nextExtId: 1, nextNotaId: 1, meuCnpj: '', empresaNome: '' };
+let state = { lancamentos: [], extrato: [], notasFiscais: [], nextLancId: 1, nextExtId: 1, nextNotaId: 1, meuCnpj: '', empresaNome: '', planoContas: [], regrasContabilizacao: { contaPadraoCaixa:'', pagar:{}, receber:{}, notaEntrada:{debito:'',credito:''}, notaSaida:{debito:'',credito:''} } };
 let editingId = null;
 let modalTipo = 'pagar';
 let concSelecaoExtrato = null;
@@ -784,7 +843,7 @@ const MAPA_CONTAS_RECEBER = {
 };
 const DONUT_COLORS = ['#146B4B','#2E6F8E','#B7791F','#8C3A2B','#5B6472','#6E4C8C','#1F3354','#9C7A2E'];
 
-const ESTADO_PADRAO = { lancamentos: [], extrato: [], notasFiscais: [], nextLancId: 1, nextExtId: 1, nextNotaId: 1, meuCnpj: '', empresaNome: '' };
+const ESTADO_PADRAO = { lancamentos: [], extrato: [], notasFiscais: [], nextLancId: 1, nextExtId: 1, nextNotaId: 1, meuCnpj: '', empresaNome: '', planoContas: [], regrasContabilizacao: { contaPadraoCaixa:'', pagar:{}, receber:{}, notaEntrada:{debito:'',credito:''}, notaSaida:{debito:'',credito:''} } };
 
 async function loadData(uid){
   currentUid = uid;
@@ -826,6 +885,7 @@ document.querySelectorAll('.navlink').forEach(btn=>{
     document.getElementById('page-'+page).classList.add('active');
     if(page==='custos') renderCustos();
     if(page==='notas') renderNotas();
+    if(page==='contabilizacao'){ renderPlanoContas(); renderRegrasContabilizacao(); }
     if(page==='conciliacao') renderConciliacao();
     if(page==='exportar') initExportPeriods();
   });
@@ -1408,7 +1468,8 @@ function criarLancamentoDeNota(n){
     vencimento: n.dataEmissao,
     dataEf: null,
     obs: `Importado via XML (${n.tipoDoc}). Chave/verificação: ${n.chave||'—'}. Natureza: ${n.naturezaOperacao||'—'}.`,
-    conciliadoCom: null
+    conciliadoCom: null,
+    origemNota: true
   };
   state.lancamentos.push(dados);
   n.status = 'convertido';
@@ -1441,6 +1502,186 @@ function excluirNota(id){
   saveData();
   renderNotas();
   showToast('Nota removida da lista.');
+}
+
+/* ============ CONTABILIZAÇÃO (PLANO DE CONTAS + REGRAS) ============ */
+function parsePlanoContasTxt(texto){
+  const linhas = (texto||'').split(/\r?\n/);
+  const brutos = [];
+  linhas.forEach(linhaRaw=>{
+    const linha = (linhaRaw||'').trim();
+    if(!linha) return;
+    const partes = linha.split(/\s{2,}/).map(p=>p.trim()).filter(Boolean);
+    if(partes.length<2) return;
+    const token = partes[0];
+    if(!/^\d+$/.test(token)) return;
+    if(/^(\d)\1{9,}$/.test(token)) return; // linha de rodapé (ex: 99999...)
+    const nome = partes[1];
+    if(!nome) return;
+    const tipoRaw = (partes[2]||'').toUpperCase();
+    const tipo = tipoRaw.startsWith('A') ? 'A' : 'S';
+    brutos.push({ token, nome, tipo });
+  });
+  if(brutos.length===0) return [];
+  const prefixLen = Math.min(...brutos.map(b=>b.token.length)) - 1;
+  if(prefixLen<0) return [];
+  const comCodigo = brutos.map(b=>({ token:b.token, nome:b.nome, tipo:b.tipo, code:b.token.slice(prefixLen) })).filter(b=>b.code.length>0);
+  const bounds = Array.from(new Set(comCodigo.map(b=>b.code.length))).sort((a,b)=>a-b);
+  return comCodigo.map(b=>{
+    const nivel = bounds.indexOf(b.code.length)+1;
+    const segs = []; let prev = 0;
+    for(let i=0;i<nivel;i++){ segs.push(b.code.slice(prev, bounds[i])); prev = bounds[i]; }
+    return { codigo: b.code, codigoFormatado: segs.join('.'), nome: b.nome, tipo: b.tipo, nivel };
+  });
+}
+function handlePlanoContasUpload(ev){
+  const file = ev.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    document.getElementById('planoContasTexto').value = e.target.result;
+    showToast('Arquivo carregado. Clique em "Importar plano de contas" para confirmar.');
+  };
+  reader.readAsText(file, 'ISO-8859-1');
+  ev.target.value = '';
+}
+function importarPlanoContas(){
+  const texto = document.getElementById('planoContasTexto').value;
+  if(!texto || !texto.trim()){ showToast('Cole ou carregue o plano de contas antes de importar.'); return; }
+  const contas = parsePlanoContasTxt(texto);
+  if(contas.length===0){ showToast('Não consegui reconhecer contas nesse texto. Confira o formato.'); return; }
+  state.planoContas = contas;
+  saveData();
+  renderPlanoContas();
+  renderRegrasContabilizacao();
+  showToast(`${contas.length} conta(s) importada(s) para o plano de contas.`);
+}
+let confirmandoLimpezaPlano = false;
+function limparPlanoContas(){
+  const btn = document.getElementById('btnLimparPlano');
+  if(!confirmandoLimpezaPlano){
+    confirmandoLimpezaPlano = true;
+    btn.textContent = 'Confirmar exclusão do plano?';
+    setTimeout(()=>{ confirmandoLimpezaPlano=false; btn.textContent='Limpar plano de contas'; }, 4000);
+    return;
+  }
+  confirmandoLimpezaPlano = false;
+  btn.textContent = 'Limpar plano de contas';
+  state.planoContas = [];
+  saveData();
+  renderPlanoContas();
+  renderRegrasContabilizacao();
+  showToast('Plano de contas removido.');
+}
+function renderPlanoContas(){
+  const busca = (document.getElementById('buscaPlanoContas').value||'').trim().toLowerCase();
+  const contas = (state.planoContas||[]).slice().sort((a,b)=>a.codigo.localeCompare(b.codigo));
+  const el = document.getElementById('tabelaPlanoContas');
+  const resumo = document.getElementById('planoContasResumo');
+  const totalA = contas.filter(c=>c.tipo==='A').length;
+  const totalS = contas.filter(c=>c.tipo==='S').length;
+  resumo.textContent = contas.length ? `${contas.length} conta(s) — ${totalS} sintética(s), ${totalA} analítica(s)` : 'Nenhum plano de contas importado ainda.';
+  const filtradas = busca ? contas.filter(c=> c.codigoFormatado.toLowerCase().includes(busca) || c.nome.toLowerCase().includes(busca)) : contas;
+  if(filtradas.length===0){
+    el.innerHTML = `<div class="empty-state">${contas.length ? 'Nenhuma conta encontrada para essa busca.' : 'Nenhum plano de contas importado ainda. Cole o texto acima e clique em Importar.'}</div>`;
+    return;
+  }
+  el.innerHTML = `<table>
+    <thead><tr><th>Código</th><th>Conta</th><th>Tipo</th></tr></thead>
+    <tbody>
+      ${filtradas.map(c=>`<tr>
+        <td style="font-family:var(--font-mono);white-space:nowrap;">${c.codigoFormatado}</td>
+        <td style="padding-left:${(c.nivel-1)*16+16}px">${c.nome}</td>
+        <td><span class="badge ${c.tipo==='A'?'pago':'pendente'}">${c.tipo==='A'?'Analítica':'Sintética'}</span></td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+function uniqueCategorias(tipo){
+  const base = tipo==='pagar' ? CATEGORIAS_PAGAR : CATEGORIAS_RECEBER;
+  const set = new Set(base);
+  state.lancamentos.forEach(l=>{ if(l.tipo===tipo && l.categoria) set.add(l.categoria); });
+  return Array.from(set);
+}
+function optionsContasAnaliticas(selecionado){
+  const contas = (state.planoContas||[]).filter(c=>c.tipo==='A').slice().sort((a,b)=>a.codigo.localeCompare(b.codigo));
+  let html = `<option value="">— selecione —</option>`;
+  html += contas.map(c=>`<option value="${c.codigo}" ${c.codigo===selecionado?'selected':''}>${c.codigoFormatado} — ${c.nome}</option>`).join('');
+  return html;
+}
+function contaLabel(codigo){
+  if(!codigo) return '';
+  const c = (state.planoContas||[]).find(x=>x.codigo===codigo);
+  return c ? `${c.codigoFormatado} — ${c.nome}` : codigo;
+}
+function contasDoLancamento(l){
+  const regras = state.regrasContabilizacao || {};
+  const temPlano = (state.planoContas||[]).length>0;
+  const contraPadrao = regras.contaPadraoCaixa ? contaLabel(regras.contaPadraoCaixa) : CONTA_CAIXA;
+  if(l.origemNota){
+    const isEntrada = l.tipo==='pagar';
+    const regraNota = isEntrada ? regras.notaEntrada : regras.notaSaida;
+    if(regraNota && (regraNota.debito || regraNota.credito)){
+      return {
+        debito: regraNota.debito ? contaLabel(regraNota.debito) : (isEntrada ? '3.2.99 Outras Despesas' : contraPadrao),
+        credito: regraNota.credito ? contaLabel(regraNota.credito) : (isEntrada ? contraPadrao : '4.1.99 Outras Receitas')
+      };
+    }
+  }
+  if(temPlano){
+    if(l.tipo==='pagar'){
+      const cod = regras.pagar && regras.pagar[l.categoria];
+      return { debito: cod ? contaLabel(cod) : (MAPA_CONTAS_PAGAR[l.categoria]||'3.2.99 Outras Despesas'), credito: contraPadrao };
+    }else{
+      const cod = regras.receber && regras.receber[l.categoria];
+      return { debito: contraPadrao, credito: cod ? contaLabel(cod) : (MAPA_CONTAS_RECEBER[l.categoria]||'4.1.99 Outras Receitas') };
+    }
+  }
+  return {
+    debito: l.tipo==='pagar' ? (MAPA_CONTAS_PAGAR[l.categoria]||'3.2.99 Outras Despesas') : CONTA_CAIXA,
+    credito: l.tipo==='pagar' ? CONTA_CAIXA : (MAPA_CONTAS_RECEBER[l.categoria]||'4.1.99 Outras Receitas')
+  };
+}
+function renderRegrasContabilizacao(){
+  const regras = state.regrasContabilizacao || (state.regrasContabilizacao = { contaPadraoCaixa:'', pagar:{}, receber:{}, notaEntrada:{debito:'',credito:''}, notaSaida:{debito:'',credito:''} });
+  document.getElementById('contaPadraoCaixa').innerHTML = optionsContasAnaliticas(regras.contaPadraoCaixa);
+
+  const pagarCats = uniqueCategorias('pagar');
+  document.getElementById('regrasPagarWrap').innerHTML = pagarCats.map(cat=>`
+    <div class="form-2col" style="align-items:end;margin-bottom:10px;">
+      <div class="form-row" style="margin-bottom:0;"><label>${cat}</label></div>
+      <div class="form-row" style="margin-bottom:0;"><select class="select regra-pagar" data-categoria="${cat}" onchange="salvarRegrasContabilizacao()">${optionsContasAnaliticas((regras.pagar||{})[cat])}</select></div>
+    </div>
+  `).join('');
+
+  const receberCats = uniqueCategorias('receber');
+  document.getElementById('regrasReceberWrap').innerHTML = receberCats.map(cat=>`
+    <div class="form-2col" style="align-items:end;margin-bottom:10px;">
+      <div class="form-row" style="margin-bottom:0;"><label>${cat}</label></div>
+      <div class="form-row" style="margin-bottom:0;"><select class="select regra-receber" data-categoria="${cat}" onchange="salvarRegrasContabilizacao()">${optionsContasAnaliticas((regras.receber||{})[cat])}</select></div>
+    </div>
+  `).join('');
+
+  document.getElementById('notaEntradaDebito').innerHTML = optionsContasAnaliticas((regras.notaEntrada||{}).debito);
+  document.getElementById('notaEntradaCredito').innerHTML = optionsContasAnaliticas((regras.notaEntrada||{}).credito);
+  document.getElementById('notaSaidaDebito').innerHTML = optionsContasAnaliticas((regras.notaSaida||{}).debito);
+  document.getElementById('notaSaidaCredito').innerHTML = optionsContasAnaliticas((regras.notaSaida||{}).credito);
+}
+function salvarRegrasContabilizacao(){
+  const regras = state.regrasContabilizacao || (state.regrasContabilizacao = {});
+  regras.contaPadraoCaixa = document.getElementById('contaPadraoCaixa').value;
+  regras.pagar = {};
+  document.querySelectorAll('.regra-pagar').forEach(sel=>{
+    if(sel.value) regras.pagar[sel.dataset.categoria] = sel.value;
+  });
+  regras.receber = {};
+  document.querySelectorAll('.regra-receber').forEach(sel=>{
+    if(sel.value) regras.receber[sel.dataset.categoria] = sel.value;
+  });
+  regras.notaEntrada = { debito: document.getElementById('notaEntradaDebito').value, credito: document.getElementById('notaEntradaCredito').value };
+  regras.notaSaida = { debito: document.getElementById('notaSaidaDebito').value, credito: document.getElementById('notaSaidaCredito').value };
+  saveData();
+  showToast('Regras de contabilização salvas.');
 }
 
 /* ============ CONCILIAÇÃO ============ */
@@ -1613,8 +1854,7 @@ function exportarContabilizacoes(){
   lista.sort((a,b)=>a.vencimento.localeCompare(b.vencimento));
   const rows = [['Data','Tipo','Unidade','Categoria','Histórico','Conta Débito','Conta Crédito','Valor','Status','Conciliado']];
   lista.forEach(l=>{
-    const debito = l.tipo==='pagar' ? (MAPA_CONTAS_PAGAR[l.categoria]||'3.2.99 Outras Despesas') : CONTA_CAIXA;
-    const credito = l.tipo==='pagar' ? CONTA_CAIXA : (MAPA_CONTAS_RECEBER[l.categoria]||'4.1.99 Outras Receitas');
+    const {debito, credito} = contasDoLancamento(l);
     rows.push([
       fmtData(l.vencimento),
       l.tipo==='pagar' ? 'Pagar' : 'Receber',
