@@ -643,14 +643,36 @@ td.checkcol,th.checkcol{width:34px;text-align:center;}
 
       <div class="panel" style="margin-bottom:20px;">
         <div class="panel-title">Regras — Notas Fiscais</div>
-        <div class="panel-sub">Aplicadas aos lançamentos gerados a partir de notas fiscais importadas (nota de entrada = compra, vira conta a pagar; nota de saída = venda, vira conta a receber).</div>
-        <div class="form-2col" style="margin-bottom:6px;">
-          <div class="form-row"><label>Nota de Entrada — Conta Débito</label><select class="select" id="notaEntradaDebito" onchange="salvarRegrasContabilizacao()"></select></div>
-          <div class="form-row"><label>Nota de Entrada — Conta Crédito</label><select class="select" id="notaEntradaCredito" onchange="salvarRegrasContabilizacao()"></select></div>
+        <div class="panel-sub">Aplicadas aos lançamentos gerados a partir de notas fiscais importadas (nota de entrada = compra, vira conta a pagar; nota de saída = venda, vira conta a receber). Defina uma regra padrão e, se precisar, regras específicas por CFOP — a regra do CFOP tem prioridade quando existir para aquela nota.</div>
+
+        <div style="margin-bottom:22px;">
+          <div style="font-size:12.5px;font-weight:700;color:var(--text-soft);margin-bottom:10px;">Regra padrão (quando não houver CFOP específico configurado)</div>
+          <div class="form-2col" style="margin-bottom:6px;">
+            <div class="form-row"><label>Entrada — Conta Débito</label><select class="select" id="notaEntradaDebito" onchange="salvarRegrasContabilizacao()"></select></div>
+            <div class="form-row"><label>Entrada — Conta Crédito</label><select class="select" id="notaEntradaCredito" onchange="salvarRegrasContabilizacao()"></select></div>
+          </div>
+          <div class="form-2col">
+            <div class="form-row"><label>Saída — Conta Débito</label><select class="select" id="notaSaidaDebito" onchange="salvarRegrasContabilizacao()"></select></div>
+            <div class="form-row"><label>Saída — Conta Crédito</label><select class="select" id="notaSaidaCredito" onchange="salvarRegrasContabilizacao()"></select></div>
+          </div>
         </div>
-        <div class="form-2col">
-          <div class="form-row"><label>Nota de Saída — Conta Débito</label><select class="select" id="notaSaidaDebito" onchange="salvarRegrasContabilizacao()"></select></div>
-          <div class="form-row"><label>Nota de Saída — Conta Crédito</label><select class="select" id="notaSaidaCredito" onchange="salvarRegrasContabilizacao()"></select></div>
+
+        <div style="margin-bottom:22px;">
+          <div style="font-size:12.5px;font-weight:700;color:var(--text-soft);margin-bottom:10px;">Regras por CFOP — Notas de Entrada</div>
+          <div id="cfopsEntradaWrap"></div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+            <input class="input" id="novoCfopEntrada" placeholder="CFOP (ex: 1102)" style="max-width:160px;">
+            <button class="btn btn-ghost btn-sm" onclick="adicionarCfop('entrada')">+ Adicionar CFOP</button>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:12.5px;font-weight:700;color:var(--text-soft);margin-bottom:10px;">Regras por CFOP — Notas de Saída</div>
+          <div id="cfopsSaidaWrap"></div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+            <input class="input" id="novoCfopSaida" placeholder="CFOP (ex: 5102)" style="max-width:160px;">
+            <button class="btn btn-ghost btn-sm" onclick="adicionarCfop('saida')">+ Adicionar CFOP</button>
+          </div>
         </div>
       </div>
 
@@ -819,7 +841,7 @@ const db = firebase.firestore();
 </script>
 <script>
 /* ============ ESTADO E PERSISTÊNCIA ============ */
-let state = { lancamentos: [], extrato: [], notasFiscais: [], nextLancId: 1, nextExtId: 1, nextNotaId: 1, meuCnpj: '', empresaNome: '', planoContas: [], regrasContabilizacao: { contaPadraoCaixa:'', pagar:{}, receber:{}, notaEntrada:{debito:'',credito:''}, notaSaida:{debito:'',credito:''} } };
+let state = { lancamentos: [], extrato: [], notasFiscais: [], nextLancId: 1, nextExtId: 1, nextNotaId: 1, meuCnpj: '', empresaNome: '', planoContas: [], regrasContabilizacao: { contaPadraoCaixa:'', pagar:{}, receber:{}, notaEntrada:{padrao:{debito:'',credito:''}, porCfop:{}}, notaSaida:{padrao:{debito:'',credito:''}, porCfop:{}} } };
 let editingId = null;
 let modalTipo = 'pagar';
 let concSelecaoExtrato = null;
@@ -843,7 +865,7 @@ const MAPA_CONTAS_RECEBER = {
 };
 const DONUT_COLORS = ['#146B4B','#2E6F8E','#B7791F','#8C3A2B','#5B6472','#6E4C8C','#1F3354','#9C7A2E'];
 
-const ESTADO_PADRAO = { lancamentos: [], extrato: [], notasFiscais: [], nextLancId: 1, nextExtId: 1, nextNotaId: 1, meuCnpj: '', empresaNome: '', planoContas: [], regrasContabilizacao: { contaPadraoCaixa:'', pagar:{}, receber:{}, notaEntrada:{debito:'',credito:''}, notaSaida:{debito:'',credito:''} } };
+const ESTADO_PADRAO = { lancamentos: [], extrato: [], notasFiscais: [], nextLancId: 1, nextExtId: 1, nextNotaId: 1, meuCnpj: '', empresaNome: '', planoContas: [], regrasContabilizacao: { contaPadraoCaixa:'', pagar:{}, receber:{}, notaEntrada:{padrao:{debito:'',credito:''}, porCfop:{}}, notaSaida:{padrao:{debito:'',credito:''}, porCfop:{}} } };
 
 async function loadData(uid){
   currentUid = uid;
@@ -1269,6 +1291,12 @@ function parseNotaFiscalXML(xmlText, filename){
     const dhEmi = tagText(ide,'dhEmi') || tagText(ide,'dEmi');
     const dataEmissao = dhEmi ? dhEmi.slice(0,10) : hoje();
     const tpNF = tagText(ide,'tpNF');
+    const detList = tagAll(infNFe, 'det');
+    let cfop = '';
+    if(detList.length){
+      const prod = tagAll(detList[0], 'prod')[0];
+      cfop = tagText(prod, 'CFOP');
+    }
     return {
       tipoDoc: 'NFe',
       chave,
@@ -1276,6 +1304,7 @@ function parseNotaFiscalXML(xmlText, filename){
       serie: tagText(ide,'serie'),
       dataEmissao,
       naturezaOperacao: tagText(ide,'natOp'),
+      cfop,
       emitenteNome: tagText(emit,'xNome'),
       emitenteCNPJ: tagText(emit,'CNPJ') || tagText(emit,'CPF'),
       destinatarioNome: tagText(dest,'xNome'),
@@ -1405,7 +1434,7 @@ function renderNotas(){
     return `<tr>
       <td class="checkcol">${podeGerar ? `<input type="checkbox" ${notasSelecionadas.has(n.id)?'checked':''} onchange="toggleSelecaoNota(${n.id})">` : ''}</td>
       <td>${fmtData(n.dataEmissao)}</td>
-      <td><div style="font-weight:600">${n.tipoDoc} ${n.numero||'—'}${n.serie?'/'+n.serie:''}</div><div style="color:var(--text-faint);font-size:11px">${n.chave || n.arquivo}</div></td>
+      <td><div style="font-weight:600">${n.tipoDoc} ${n.numero||'—'}${n.serie?'/'+n.serie:''}</div><div style="color:var(--text-faint);font-size:11px">${n.chave || n.arquivo}${n.cfop?' · CFOP '+n.cfop:''}</div></td>
       <td>${n.emitenteNome||'—'}</td>
       <td>${n.destinatarioNome||'—'}</td>
       <td class="num">${fmtMoeda(n.valor)}</td>
@@ -1467,7 +1496,8 @@ function criarLancamentoDeNota(n){
     valor: n.valor,
     vencimento: n.dataEmissao,
     dataEf: null,
-    obs: `Importado via XML (${n.tipoDoc}). Chave/verificação: ${n.chave||'—'}. Natureza: ${n.naturezaOperacao||'—'}.`,
+    cfop: n.cfop || '',
+    obs: `Importado via XML (${n.tipoDoc}). Chave/verificação: ${n.chave||'—'}. Natureza: ${n.naturezaOperacao||'—'}.${n.cfop ? ' CFOP: '+n.cfop+'.' : ''}`,
     conciliadoCom: null,
     origemNota: true
   };
@@ -1620,12 +1650,18 @@ function contasDoLancamento(l){
   const contraPadrao = regras.contaPadraoCaixa ? contaLabel(regras.contaPadraoCaixa) : CONTA_CAIXA;
   if(l.origemNota){
     const isEntrada = l.tipo==='pagar';
-    const regraNota = isEntrada ? regras.notaEntrada : regras.notaSaida;
-    if(regraNota && (regraNota.debito || regraNota.credito)){
-      return {
-        debito: regraNota.debito ? contaLabel(regraNota.debito) : (isEntrada ? '3.2.99 Outras Despesas' : contraPadrao),
-        credito: regraNota.credito ? contaLabel(regraNota.credito) : (isEntrada ? contraPadrao : '4.1.99 Outras Receitas')
-      };
+    const grupoRaw = isEntrada ? regras.notaEntrada : regras.notaSaida;
+    if(grupoRaw){
+      const padrao = grupoRaw.padrao || grupoRaw; // compatível com o formato antigo (sem padrao/porCfop)
+      const porCfop = grupoRaw.porCfop || {};
+      const regraCfop = l.cfop && porCfop[l.cfop];
+      const regraNota = (regraCfop && (regraCfop.debito || regraCfop.credito)) ? regraCfop : padrao;
+      if(regraNota && (regraNota.debito || regraNota.credito)){
+        return {
+          debito: regraNota.debito ? contaLabel(regraNota.debito) : (isEntrada ? '3.2.99 Outras Despesas' : contraPadrao),
+          credito: regraNota.credito ? contaLabel(regraNota.credito) : (isEntrada ? contraPadrao : '4.1.99 Outras Receitas')
+        };
+      }
     }
   }
   if(temPlano){
@@ -1642,8 +1678,65 @@ function contasDoLancamento(l){
     credito: l.tipo==='pagar' ? CONTA_CAIXA : (MAPA_CONTAS_RECEBER[l.categoria]||'4.1.99 Outras Receitas')
   };
 }
+function grupoNotaNormalizado(grupoRaw){
+  if(!grupoRaw) return { padrao:{debito:'',credito:''}, porCfop:{} };
+  if(grupoRaw.padrao || grupoRaw.porCfop) return { padrao: grupoRaw.padrao||{debito:'',credito:''}, porCfop: grupoRaw.porCfop||{} };
+  // formato antigo, sem padrao/porCfop
+  return { padrao: { debito: grupoRaw.debito||'', credito: grupoRaw.credito||'' }, porCfop: {} };
+}
+function uniqueCfops(direcao){
+  const regras = state.regrasContabilizacao || {};
+  const grupo = grupoNotaNormalizado(direcao==='entrada' ? regras.notaEntrada : regras.notaSaida);
+  const set = new Set(Object.keys(grupo.porCfop||{}));
+  state.notasFiscais.forEach(n=>{ if(n.direcao===direcao && n.cfop) set.add(n.cfop); });
+  return Array.from(set).sort();
+}
+function linhaRegraCfop(direcao, cfop, regra){
+  const cls = direcao==='entrada' ? 'entrada' : 'saida';
+  return `
+    <div style="border:1px solid var(--line-soft);border-radius:8px;padding:12px 14px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <b style="font-size:12.5px;">CFOP ${cfop}</b>
+        <button class="btn btn-ghost btn-sm" onclick="removerCfopRegra('${direcao}','${cfop}')">Remover</button>
+      </div>
+      <div class="form-2col">
+        <div class="form-row" style="margin-bottom:0;"><label>Conta Débito</label><select class="select cfop-${cls}-debito" data-cfop="${cfop}" onchange="salvarRegrasContabilizacao()">${optionsContasAnaliticas(regra.debito)}</select></div>
+        <div class="form-row" style="margin-bottom:0;"><label>Conta Crédito</label><select class="select cfop-${cls}-credito" data-cfop="${cfop}" onchange="salvarRegrasContabilizacao()">${optionsContasAnaliticas(regra.credito)}</select></div>
+      </div>
+    </div>`;
+}
+function renderRegrasNotasCfop(){
+  const regras = state.regrasContabilizacao || {};
+  const grupoEntrada = grupoNotaNormalizado(regras.notaEntrada);
+  const cfopsEntrada = uniqueCfops('entrada');
+  document.getElementById('cfopsEntradaWrap').innerHTML = cfopsEntrada.length ? cfopsEntrada.map(cfop=>linhaRegraCfop('entrada', cfop, grupoEntrada.porCfop[cfop]||{debito:'',credito:''})).join('') : '<div class="empty-state" style="padding:20px;">Nenhum CFOP configurado ainda. Importe notas ou adicione manualmente abaixo.</div>';
+
+  const grupoSaida = grupoNotaNormalizado(regras.notaSaida);
+  const cfopsSaida = uniqueCfops('saida');
+  document.getElementById('cfopsSaidaWrap').innerHTML = cfopsSaida.length ? cfopsSaida.map(cfop=>linhaRegraCfop('saida', cfop, grupoSaida.porCfop[cfop]||{debito:'',credito:''})).join('') : '<div class="empty-state" style="padding:20px;">Nenhum CFOP configurado ainda. Importe notas ou adicione manualmente abaixo.</div>';
+}
+function adicionarCfop(direcao){
+  const inputId = direcao==='entrada' ? 'novoCfopEntrada' : 'novoCfopSaida';
+  const input = document.getElementById(inputId);
+  const val = (input.value||'').trim();
+  if(!/^\d{4}$/.test(val)){ showToast('Digite um CFOP válido (4 dígitos).'); return; }
+  const regras = state.regrasContabilizacao || (state.regrasContabilizacao = {});
+  const chave = direcao==='entrada' ? 'notaEntrada' : 'notaSaida';
+  regras[chave] = grupoNotaNormalizado(regras[chave]);
+  if(!regras[chave].porCfop[val]) regras[chave].porCfop[val] = { debito:'', credito:'' };
+  input.value = '';
+  renderRegrasNotasCfop();
+}
+function removerCfopRegra(direcao, cfop){
+  const regras = state.regrasContabilizacao || {};
+  const chave = direcao==='entrada' ? 'notaEntrada' : 'notaSaida';
+  regras[chave] = grupoNotaNormalizado(regras[chave]);
+  delete regras[chave].porCfop[cfop];
+  saveData();
+  renderRegrasNotasCfop();
+}
 function renderRegrasContabilizacao(){
-  const regras = state.regrasContabilizacao || (state.regrasContabilizacao = { contaPadraoCaixa:'', pagar:{}, receber:{}, notaEntrada:{debito:'',credito:''}, notaSaida:{debito:'',credito:''} });
+  const regras = state.regrasContabilizacao || (state.regrasContabilizacao = { contaPadraoCaixa:'', pagar:{}, receber:{}, notaEntrada:{padrao:{debito:'',credito:''},porCfop:{}}, notaSaida:{padrao:{debito:'',credito:''},porCfop:{}} });
   document.getElementById('contaPadraoCaixa').innerHTML = optionsContasAnaliticas(regras.contaPadraoCaixa);
 
   const pagarCats = uniqueCategorias('pagar');
@@ -1662,10 +1755,13 @@ function renderRegrasContabilizacao(){
     </div>
   `).join('');
 
-  document.getElementById('notaEntradaDebito').innerHTML = optionsContasAnaliticas((regras.notaEntrada||{}).debito);
-  document.getElementById('notaEntradaCredito').innerHTML = optionsContasAnaliticas((regras.notaEntrada||{}).credito);
-  document.getElementById('notaSaidaDebito').innerHTML = optionsContasAnaliticas((regras.notaSaida||{}).debito);
-  document.getElementById('notaSaidaCredito').innerHTML = optionsContasAnaliticas((regras.notaSaida||{}).credito);
+  const grupoEntrada = grupoNotaNormalizado(regras.notaEntrada);
+  const grupoSaida = grupoNotaNormalizado(regras.notaSaida);
+  document.getElementById('notaEntradaDebito').innerHTML = optionsContasAnaliticas(grupoEntrada.padrao.debito);
+  document.getElementById('notaEntradaCredito').innerHTML = optionsContasAnaliticas(grupoEntrada.padrao.credito);
+  document.getElementById('notaSaidaDebito').innerHTML = optionsContasAnaliticas(grupoSaida.padrao.debito);
+  document.getElementById('notaSaidaCredito').innerHTML = optionsContasAnaliticas(grupoSaida.padrao.credito);
+  renderRegrasNotasCfop();
 }
 function salvarRegrasContabilizacao(){
   const regras = state.regrasContabilizacao || (state.regrasContabilizacao = {});
@@ -1678,8 +1774,22 @@ function salvarRegrasContabilizacao(){
   document.querySelectorAll('.regra-receber').forEach(sel=>{
     if(sel.value) regras.receber[sel.dataset.categoria] = sel.value;
   });
-  regras.notaEntrada = { debito: document.getElementById('notaEntradaDebito').value, credito: document.getElementById('notaEntradaCredito').value };
-  regras.notaSaida = { debito: document.getElementById('notaSaidaDebito').value, credito: document.getElementById('notaSaidaCredito').value };
+
+  const porCfopEntrada = {};
+  document.querySelectorAll('.cfop-entrada-debito').forEach(sel=>{
+    const cfop = sel.dataset.cfop;
+    const credSel = document.querySelector(`.cfop-entrada-credito[data-cfop="${cfop}"]`);
+    porCfopEntrada[cfop] = { debito: sel.value, credito: credSel ? credSel.value : '' };
+  });
+  const porCfopSaida = {};
+  document.querySelectorAll('.cfop-saida-debito').forEach(sel=>{
+    const cfop = sel.dataset.cfop;
+    const credSel = document.querySelector(`.cfop-saida-credito[data-cfop="${cfop}"]`);
+    porCfopSaida[cfop] = { debito: sel.value, credito: credSel ? credSel.value : '' };
+  });
+
+  regras.notaEntrada = { padrao: { debito: document.getElementById('notaEntradaDebito').value, credito: document.getElementById('notaEntradaCredito').value }, porCfop: porCfopEntrada };
+  regras.notaSaida = { padrao: { debito: document.getElementById('notaSaidaDebito').value, credito: document.getElementById('notaSaidaCredito').value }, porCfop: porCfopSaida };
   saveData();
   showToast('Regras de contabilização salvas.');
 }
@@ -1852,13 +1962,13 @@ function exportarContabilizacoes(){
   });
   if(lista.length===0){ showToast('Nenhum lançamento no período selecionado.'); return; }
   lista.sort((a,b)=>a.vencimento.localeCompare(b.vencimento));
-  const rows = [['Data','Tipo','Unidade','Categoria','Histórico','Conta Débito','Conta Crédito','Valor','Status','Conciliado']];
+  const rows = [['Data','Tipo','Unidade','Categoria','CFOP','Histórico','Conta Débito','Conta Crédito','Valor','Status','Conciliado']];
   lista.forEach(l=>{
     const {debito, credito} = contasDoLancamento(l);
     rows.push([
       fmtData(l.vencimento),
       l.tipo==='pagar' ? 'Pagar' : 'Receber',
-      l.unidade, l.categoria, l.descricao,
+      l.unidade, l.categoria, l.cfop||'', l.descricao,
       debito, credito,
       l.valor.toFixed(2).replace('.',','),
       statusDe(l),
@@ -1885,13 +1995,14 @@ function exportarConciliacao(){
 }
 function exportarNotasFiscais(){
   if(state.notasFiscais.length===0){ showToast('Nenhuma nota fiscal importada.'); return; }
-  const rows = [['Tipo Doc','Número','Série','Emissão','Emitente','CNPJ Emitente','Destinatário','CNPJ Destinatário','Valor','Direção','Chave/Verificação','Natureza Operação','Status']];
+  const rows = [['Tipo Doc','Número','Série','Emissão','Emitente','CNPJ Emitente','Destinatário','CNPJ Destinatário','Valor','Direção','CFOP','Chave/Verificação','Natureza Operação','Status']];
   state.notasFiscais.slice().sort((a,b)=>a.dataEmissao.localeCompare(b.dataEmissao)).forEach(n=>{
     rows.push([
       n.tipoDoc, n.numero||'', n.serie||'', fmtData(n.dataEmissao),
       n.emitenteNome||'', n.emitenteCNPJ||'', n.destinatarioNome||'', n.destinatarioCNPJ||'',
       n.valor.toFixed(2).replace('.',','),
       n.direcao==='saida'?'Saída (a receber)':n.direcao==='entrada'?'Entrada (a pagar)':'Indefinida',
+      n.cfop||'',
       n.chave||'', n.naturezaOperacao||'',
       n.status==='convertido'?'Convertida em lançamento':'Pendente'
     ]);
