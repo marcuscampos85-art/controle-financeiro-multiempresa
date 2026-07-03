@@ -829,6 +829,11 @@ td.checkcol,th.checkcol{width:34px;text-align:center;}
   <div class="modal">
     <h3>Nova conta contábil</h3>
     <div class="form-row">
+      <label>Pesquisar no plano de contas (para achar o código certo)</label>
+      <input type="text" class="input" id="buscaContaModal" placeholder="Buscar por código ou nome..." oninput="renderBuscaContaModal()" style="width:100%;">
+      <div id="resultadoBuscaContaModal" style="max-height:160px;overflow-y:auto;margin-top:6px;"></div>
+    </div>
+    <div class="form-row">
       <label>Código (use pontos para indicar o nível, ex: 3.2.06)</label>
       <input type="text" id="fContaCodigo" placeholder="Ex: 3.2.06">
     </div>
@@ -1619,10 +1624,33 @@ function openModalConta(){
   document.getElementById('fContaCodigo').value = '';
   document.getElementById('fContaNome').value = '';
   document.getElementById('fContaTipo').value = 'A';
+  document.getElementById('buscaContaModal').value = '';
+  document.getElementById('resultadoBuscaContaModal').innerHTML = '';
   document.getElementById('modalContaOverlay').classList.add('open');
 }
 function closeModalConta(){
   document.getElementById('modalContaOverlay').classList.remove('open');
+}
+function renderBuscaContaModal(){
+  const busca = (document.getElementById('buscaContaModal').value||'').trim().toLowerCase();
+  const el = document.getElementById('resultadoBuscaContaModal');
+  if(!busca){ el.innerHTML = ''; return; }
+  const contas = (state.planoContas||[]).filter(c=> c.codigoFormatado.toLowerCase().includes(busca) || c.nome.toLowerCase().includes(busca)).slice().sort((a,b)=>a.codigo.localeCompare(b.codigo)).slice(0,30);
+  if(contas.length===0){
+    el.innerHTML = '<div style="font-size:12px;color:var(--text-faint);padding:6px 2px;">Nenhuma conta encontrada.</div>';
+    return;
+  }
+  el.innerHTML = contas.map(c=>`
+    <div onclick="selecionarContaBusca('${c.codigoFormatado}')" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--line-soft);" onmouseover="this.style.background='var(--paper)'" onmouseout="this.style.background='transparent'">
+      <span style="font-family:var(--font-mono);color:var(--text-soft);white-space:nowrap;">${c.codigoFormatado}</span>
+      <span style="flex:1;">${c.nome}</span>
+      <span class="badge ${c.tipo==='A'?'pago':'pendente'}" style="flex-shrink:0;">${c.tipo==='A'?'Analítica':'Sintética'}</span>
+    </div>
+  `).join('');
+}
+function selecionarContaBusca(codigoFormatado){
+  document.getElementById('fContaCodigo').value = codigoFormatado;
+  document.getElementById('fContaCodigo').focus();
 }
 function salvarNovaConta(){
   const codigoFormatado = document.getElementById('fContaCodigo').value.trim();
