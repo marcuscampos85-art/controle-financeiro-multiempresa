@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-<!-- redeploy trigger -->
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -563,8 +562,8 @@ td.checkcol,th.checkcol{width:34px;text-align:center;}
       </div>
 
       <div class="upload-zone">
-        <input type="file" id="fileNotas" accept=".xml" multiple style="display:none" onchange="handleNotasUpload(event)">
-        <button class="btn btn-primary" onclick="document.getElementById('fileNotas').click()">Importar notas fiscais (.xml — selecione vários arquivos de uma vez)</button>
+        <input type="file" id="fileNotas" accept=".xml,.zip" multiple style="display:none" onchange="handleNotasUpload(event)">
+        <button class="btn btn-primary" onclick="document.getElementById('fileNotas').click()">Importar notas fiscais (.xml ou .zip — selecione vários arquivos de uma vez)</button>
         <p>Aceita XML de NFe/NFCe e, em caráter experimental, NFS-e (o layout de NFS-e varia por prefeitura — confira os dados após importar).</p>
       </div>
 
@@ -861,6 +860,7 @@ td.checkcol,th.checkcol{width:34px;text-align:center;}
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
 const firebaseConfig = {
   apiKey: "AIzaSyBhI78K7lwiJIYSigEcMLvo9eXpOBaQQqE",
@@ -1394,42 +1394,61 @@ function salvarMeuCnpj(){
   renderNotas();
 }
 
-function handleNotasUpload(ev){
+async function handleNotasUpload(ev){
   const files = Array.from(ev.target.files || []);
+  ev.target.value = '';
   if(files.length===0) return;
-  let lidos = 0, importados = 0, ignorados = 0;
-  const finalizar = ()=>{
-    if(lidos!==files.length) return;
-    saveData();
-    initFilters();
-    renderNotas();
-    showToast(`${importados} nota(s) importada(s)${ignorados?', '+ignorados+' arquivo(s) não reconhecido(s)':''}.`);
-  };
-  files.forEach(file=>{
-    const reader = new FileReader();
-    reader.onload = (e)=>{
-      const parsed = parseNotaFiscalXML(e.target.result, file.name);
-      if(parsed){
-        parsed.id = state.nextNotaId++;
-        parsed.status = 'pendente';
-        parsed.lancamentoId = null;
-        parsed.direcao = calcularDirecao(parsed);
-        state.notasFiscais.push(parsed);
-        importados++;
-      }else{
-        ignorados++;
-      }
-      lidos++;
-      finalizar();
-    };
-    reader.onerror = ()=>{
+  let importados = 0, ignorados = 0, zipsComErro = 0;
+
+  const processarXmlTexto = (texto, nome)=>{
+    const parsed = parseNotaFiscalXML(texto, nome);
+    if(parsed){
+      parsed.id = state.nextNotaId++;
+      parsed.status = 'pendente';
+      parsed.lancamentoId = null;
+      parsed.direcao = calcularDirecao(parsed);
+      state.notasFiscais.push(parsed);
+      importados++;
+    }else{
       ignorados++;
-      lidos++;
-      finalizar();
-    };
+    }
+  };
+
+  const lerArquivoXml = (file)=> new Promise(resolve=>{
+    const reader = new FileReader();
+    reader.onload = (e)=>{ processarXmlTexto(e.target.result, file.name); resolve(); };
+    reader.onerror = ()=>{ ignorados++; resolve(); };
     reader.readAsText(file);
   });
-  ev.target.value = '';
+
+  for(const file of files){
+    if(/\.zip$/i.test(file.name)){
+      try{
+        const zip = await JSZip.loadAsync(file);
+        const entradasXml = Object.values(zip.files).filter(f=>!f.dir && /\.xml$/i.test(f.name));
+        for(const entrada of entradasXml){
+          try{
+            const texto = await entrada.async('string');
+            processarXmlTexto(texto, entrada.name);
+          }catch(e){
+            ignorados++;
+          }
+        }
+      }catch(e){
+        zipsComErro++;
+      }
+    }else{
+      await lerArquivoXml(file);
+    }
+  }
+
+  saveData();
+  initFilters();
+  renderNotas();
+  let msg = `${importados} nota(s) importada(s)`;
+  if(ignorados) msg += `, ${ignorados} arquivo(s) não reconhecido(s)`;
+  if(zipsComErro) msg += `, ${zipsComErro} arquivo(s) zip com erro ao abrir`;
+  showToast(msg + '.');
 }
 
 function renderNotas(){
