@@ -399,6 +399,7 @@ td.checkcol,th.checkcol{width:34px;text-align:center;}
       <button class="navlink" data-page="custos"><span class="dot"></span>Custos &amp; Despesas</button>
       <button class="navlink" data-page="notas"><span class="dot"></span>Notas Fiscais</button>
       <button class="navlink" data-page="contabilizacao"><span class="dot"></span>Contabilização</button>
+      <button class="navlink" data-page="relatorios"><span class="dot"></span>Relatórios</button>
       <button class="navlink" data-page="conciliacao"><span class="dot"></span>Conciliação Bancária</button>
       <button class="navlink" data-page="exportar"><span class="dot"></span>Exportar</button>
     </nav>
@@ -682,6 +683,42 @@ td.checkcol,th.checkcol{width:34px;text-align:center;}
       <button class="btn btn-primary" onclick="salvarRegrasContabilizacao()">Salvar regras de contabilização</button>
     </section>
 
+    <!-- RELATÓRIOS -->
+    <section class="page" id="page-relatorios">
+      <div class="page-head">
+        <div>
+          <div class="page-title">Relatórios</div>
+          <div class="page-sub">DRE e Balanço Patrimonial gerados automaticamente a partir do débito/crédito definido em Contabilização.</div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:20px;">
+        <div class="panel-title">Demonstração do Resultado (DRE)</div>
+        <div class="panel-sub">Considera os lançamentos pela data de vencimento, dentro do período selecionado.</div>
+        <div class="export-controls" style="margin-bottom:16px;">
+          <label style="font-size:12.5px;color:var(--text-soft);display:flex;align-items:center;gap:6px;">De
+            <input type="date" class="input" id="dreDataIni" onchange="renderDRE()" style="max-width:160px;">
+          </label>
+          <label style="font-size:12.5px;color:var(--text-soft);display:flex;align-items:center;gap:6px;">Até
+            <input type="date" class="input" id="dreDataFim" onchange="renderDRE()" style="max-width:160px;">
+          </label>
+        </div>
+        <div id="dreResultado"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Balanço Patrimonial</div>
+        <div class="panel-sub">Posição acumulada de todos os lançamentos até a data de referência.</div>
+        <div class="export-controls" style="margin-bottom:16px;">
+          <label style="font-size:12.5px;color:var(--text-soft);display:flex;align-items:center;gap:6px;">Posição em
+            <input type="date" class="input" id="balancoData" onchange="renderBalanco()" style="max-width:160px;">
+          </label>
+        </div>
+        <div id="balancoResultado"></div>
+        <div id="balancoCheck" style="margin-top:10px;font-size:12.5px;font-weight:600;"></div>
+      </div>
+    </section>
+
     <!-- CONCILIAÇÃO -->
     <section class="page" id="page-conciliacao">
       <div class="page-head">
@@ -943,6 +980,7 @@ document.querySelectorAll('.navlink').forEach(btn=>{
     if(page==='custos') renderCustos();
     if(page==='notas') renderNotas();
     if(page==='contabilizacao'){ renderPlanoContas(); renderRegrasContabilizacao(); }
+    if(page==='relatorios') renderRelatorios();
     if(page==='conciliacao') renderConciliacao();
     if(page==='exportar') initExportPeriods();
   });
@@ -2030,6 +2068,158 @@ function tentarParear(lancId){
   renderConciliacao();
   renderDashboard();
   showToast('Lançamento conciliado com o extrato.');
+}
+
+/* ============ RELATÓRIOS (DRE / BALANÇO PATRIMONIAL) ============ */
+function normalizarTexto(s){
+  return (s||'').toString().normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]','g'),'').toLowerCase();
+}
+function classificarPorNome(nome){
+  const t = normalizarTexto(nome);
+  if(/patrimonio/.test(t)) return 'PL';
+  if(/passivo/.test(t)) return 'PASSIVO';
+  if(/ativo|caixa|banco/.test(t)) return 'ATIVO';
+  if(/receita/.test(t)) return 'RECEITA';
+  if(/custo/.test(t)) return 'CUSTO';
+  if(/despesa/.test(t)) return 'DESPESA';
+  return null;
+}
+// Rótulos fixos (usados quando não há plano de contas, ou quando a regra não aponta para uma conta específica)
+const LABEL_GRUPO_FIXO = (function(){
+  const map = {};
+  map[CONTA_CAIXA] = 'ATIVO';
+  Object.entries(MAPA_CONTAS_PAGAR).forEach(([cat,label])=>{ map[label] = (cat==='Custo Fixo'||cat==='Custo Variável') ? 'CUSTO' : 'DESPESA'; });
+  Object.entries(MAPA_CONTAS_RECEBER).forEach(([cat,label])=>{ map[label] = 'RECEITA'; });
+  return map;
+})();
+function contaAncestralNivel1(conta){
+  if(conta.nivel===1) return conta;
+  return (state.planoContas||[]).find(c=>c.nivel===1 && conta.codigo.startsWith(c.codigo)) || conta;
+}
+// Descobre o grupo contábil (ATIVO/PASSIVO/PL/RECEITA/CUSTO/DESPESA) de um rótulo de conta
+// vindo de contasDoLancamento(). Retorna null se não conseguir classificar.
+function grupoDoLabel(label){
+  if(!label) return null;
+  if(LABEL_GRUPO_FIXO[label]) return LABEL_GRUPO_FIXO[label];
+  const idx = label.indexOf(' — ');
+  if(idx>-1){
+    const codigoFormatado = label.slice(0, idx).trim();
+    const conta = (state.planoContas||[]).find(c=>c.codigoFormatado===codigoFormatado);
+    if(conta){
+      const ancestral = contaAncestralNivel1(conta);
+      return classificarPorNome(ancestral.nome) || classificarPorNome(conta.nome);
+    }
+  }
+  return classificarPorNome(label);
+}
+function contaNomeExibicao(label){
+  const idx = label.indexOf(' — ');
+  if(idx>-1) return label.slice(idx+3);
+  const m = label.match(/^[\d.]+\s+(.*)$/);
+  return m ? m[1] : label;
+}
+// Monta o "razão": para cada conta atingida pelos lançamentos, soma total debitado e creditado
+function construirRazao(lancamentos){
+  const mapa = new Map();
+  lancamentos.forEach(l=>{
+    const {debito, credito} = contasDoLancamento(l);
+    if(!mapa.has(debito)) mapa.set(debito, {debito:0, credito:0});
+    if(!mapa.has(credito)) mapa.set(credito, {debito:0, credito:0});
+    mapa.get(debito).debito += l.valor;
+    mapa.get(credito).credito += l.valor;
+  });
+  return mapa;
+}
+// Agrupa as contas do razão nos 6 grupos contábeis, já com o saldo no sinal natural do grupo
+function agruparRazao(mapaRazao){
+  const grupos = { ATIVO:[], PASSIVO:[], PL:[], RECEITA:[], CUSTO:[], DESPESA:[] };
+  mapaRazao.forEach((v, label)=>{
+    const saldoDevedor = v.debito - v.credito;
+    let g = grupoDoLabel(label);
+    if(!g) g = saldoDevedor>=0 ? 'ATIVO' : 'PASSIVO'; // conta não classificada: usa o sinal natural do saldo
+    const natural = (g==='ATIVO'||g==='CUSTO'||g==='DESPESA') ? saldoDevedor : -saldoDevedor;
+    if(Math.abs(natural) < 0.005) return;
+    grupos[g].push({ label, saldo: natural });
+  });
+  Object.values(grupos).forEach(arr=>arr.sort((a,b)=>b.saldo-a.saldo));
+  return grupos;
+}
+function renderRelatorios(){
+  const iniEl = document.getElementById('dreDataIni');
+  const fimEl = document.getElementById('dreDataFim');
+  const balEl = document.getElementById('balancoData');
+  if(!iniEl.value || !fimEl.value){
+    const hj = new Date();
+    iniEl.value = new Date(hj.getFullYear(), hj.getMonth(), 1).toISOString().slice(0,10);
+    fimEl.value = new Date(hj.getFullYear(), hj.getMonth()+1, 0).toISOString().slice(0,10);
+  }
+  if(!balEl.value) balEl.value = hoje();
+  renderDRE();
+  renderBalanco();
+}
+function renderDRE(){
+  const dIni = document.getElementById('dreDataIni').value;
+  const dFim = document.getElementById('dreDataFim').value;
+  const lista = state.lancamentos.filter(l=> l.vencimento && (!dIni || l.vencimento>=dIni) && (!dFim || l.vencimento<=dFim));
+  const el = document.getElementById('dreResultado');
+  if(lista.length===0){
+    el.innerHTML = '<div class="empty-state">Nenhum lançamento no período selecionado.</div>';
+    return;
+  }
+  const grupos = agruparRazao(construirRazao(lista));
+  const totalReceita = grupos.RECEITA.reduce((s,c)=>s+c.saldo,0);
+  const totalCusto = grupos.CUSTO.reduce((s,c)=>s+c.saldo,0);
+  const totalDespesa = grupos.DESPESA.reduce((s,c)=>s+c.saldo,0);
+  const lucroBruto = totalReceita - totalCusto;
+  const resultado = lucroBruto - totalDespesa;
+  const linha = (c,cls)=>`<tr><td style="padding-left:32px;">${contaNomeExibicao(c.label)}</td><td class="num ${cls}">${fmtMoeda(c.saldo)}</td></tr>`;
+  let html = '<table><tbody>';
+  html += `<tr class="totals-row"><td>(+) Receitas</td><td class="num receita">${fmtMoeda(totalReceita)}</td></tr>`;
+  html += grupos.RECEITA.map(c=>linha(c,'receita')).join('');
+  html += `<tr class="totals-row"><td>(−) Custos</td><td class="num despesa">${fmtMoeda(totalCusto)}</td></tr>`;
+  html += grupos.CUSTO.map(c=>linha(c,'despesa')).join('');
+  html += `<tr class="totals-row"><td>(=) Lucro Bruto</td><td class="num ${lucroBruto>=0?'receita':'despesa'}">${fmtMoeda(lucroBruto)}</td></tr>`;
+  html += `<tr class="totals-row"><td>(−) Despesas Operacionais</td><td class="num despesa">${fmtMoeda(totalDespesa)}</td></tr>`;
+  html += grupos.DESPESA.map(c=>linha(c,'despesa')).join('');
+  html += `<tr class="totals-row"><td style="font-size:14px;">(=) Resultado do Período</td><td class="num ${resultado>=0?'receita':'despesa'}" style="font-size:14px;">${fmtMoeda(resultado)}</td></tr>`;
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+function renderBalanco(){
+  const data = document.getElementById('balancoData').value || hoje();
+  const lista = state.lancamentos.filter(l=> l.vencimento && l.vencimento<=data);
+  const el = document.getElementById('balancoResultado');
+  const check = document.getElementById('balancoCheck');
+  if(lista.length===0){
+    el.innerHTML = '<div class="empty-state">Nenhum lançamento até a data selecionada.</div>';
+    check.textContent = '';
+    return;
+  }
+  const grupos = agruparRazao(construirRazao(lista));
+  const totalReceita = grupos.RECEITA.reduce((s,c)=>s+c.saldo,0);
+  const totalCusto = grupos.CUSTO.reduce((s,c)=>s+c.saldo,0);
+  const totalDespesa = grupos.DESPESA.reduce((s,c)=>s+c.saldo,0);
+  const resultadoAcumulado = totalReceita - totalCusto - totalDespesa;
+  const totalAtivo = grupos.ATIVO.reduce((s,c)=>s+c.saldo,0);
+  const totalPassivo = grupos.PASSIVO.reduce((s,c)=>s+c.saldo,0);
+  const totalPLContas = grupos.PL.reduce((s,c)=>s+c.saldo,0);
+  const totalPL = totalPLContas + resultadoAcumulado;
+  const linha = (c)=>`<tr><td style="padding-left:32px;">${contaNomeExibicao(c.label)}</td><td class="num">${fmtMoeda(c.saldo)}</td></tr>`;
+  let html = '<table><tbody>';
+  html += `<tr class="totals-row"><td>ATIVO</td><td class="num">${fmtMoeda(totalAtivo)}</td></tr>`;
+  html += grupos.ATIVO.map(linha).join('');
+  html += `<tr class="totals-row"><td>PASSIVO</td><td class="num">${fmtMoeda(totalPassivo)}</td></tr>`;
+  html += grupos.PASSIVO.map(linha).join('');
+  html += `<tr class="totals-row"><td>PATRIMÔNIO LÍQUIDO</td><td class="num">${fmtMoeda(totalPL)}</td></tr>`;
+  html += grupos.PL.map(linha).join('');
+  html += `<tr><td style="padding-left:32px;">Resultado Acumulado (Receitas − Custos − Despesas)</td><td class="num ${resultadoAcumulado>=0?'receita':'despesa'}">${fmtMoeda(resultadoAcumulado)}</td></tr>`;
+  html += `<tr class="totals-row"><td>Total Passivo + Patrimônio Líquido</td><td class="num">${fmtMoeda(totalPassivo+totalPL)}</td></tr>`;
+  html += '</tbody></table>';
+  el.innerHTML = html;
+  const diff = totalAtivo - (totalPassivo+totalPL);
+  check.innerHTML = Math.abs(diff)<0.01
+    ? `<span style="color:var(--receita);">✓ Ativo confere com Passivo + Patrimônio Líquido.</span>`
+    : `<span style="color:var(--despesa);">⚠ Diferença de ${fmtMoeda(diff)} entre Ativo e Passivo + PL — revise as regras de contabilização.</span>`;
 }
 
 /* ============ EXPORTAÇÃO ============ */
