@@ -501,6 +501,12 @@ td.checkcol,th.checkcol{width:34px;text-align:center;}
         <select class="select" id="filtroUnidadePagar" onchange="renderPagar()">
           <option value="">Todas as unidades</option>
         </select>
+        <button class="btn btn-ghost btn-sm" onclick="selecionarTodosVisiveisLancamentos('pagar')">Selecionar todos</button>
+        <button class="btn btn-ghost btn-sm" onclick="limparSelecaoLancamentos('pagar')">Limpar seleção</button>
+      </div>
+      <div class="bulk-bar hidden" id="bulkBarPagar">
+        <span><b id="bulkCountPagar">0</b> lançamento(s) selecionado(s)</span>
+        <button class="btn btn-despesa btn-sm" onclick="excluirLancamentosSelecionados('pagar')">Excluir selecionados</button>
       </div>
       <div id="tabelaPagar"></div>
     </section>
@@ -525,6 +531,12 @@ td.checkcol,th.checkcol{width:34px;text-align:center;}
         <select class="select" id="filtroUnidadeReceber" onchange="renderReceber()">
           <option value="">Todas as unidades</option>
         </select>
+        <button class="btn btn-ghost btn-sm" onclick="selecionarTodosVisiveisLancamentos('receber')">Selecionar todos</button>
+        <button class="btn btn-ghost btn-sm" onclick="limparSelecaoLancamentos('receber')">Limpar seleção</button>
+      </div>
+      <div class="bulk-bar hidden" id="bulkBarReceber">
+        <span><b id="bulkCountReceber">0</b> lançamento(s) selecionado(s)</span>
+        <button class="btn btn-despesa btn-sm" onclick="excluirLancamentosSelecionados('receber')">Excluir selecionados</button>
       </div>
       <div id="tabelaReceber"></div>
     </section>
@@ -588,6 +600,7 @@ td.checkcol,th.checkcol{width:34px;text-align:center;}
           <option value="entrada">Entrada (a pagar)</option>
           <option value="indefinida">Indefinida</option>
         </select>
+        <button class="btn btn-ghost btn-sm" onclick="selecionarTodasNotas()">Selecionar todas</button>
         <button class="btn btn-ghost btn-sm" onclick="selecionarTodasPendentesNotas()">Selecionar todas pendentes</button>
         <button class="btn btn-ghost btn-sm" onclick="limparSelecaoNotas()">Limpar seleção</button>
       </div>
@@ -595,6 +608,7 @@ td.checkcol,th.checkcol{width:34px;text-align:center;}
       <div class="bulk-bar hidden" id="bulkBarNotas">
         <span><b id="bulkCountNotas">0</b> nota(s) selecionada(s)</span>
         <button class="btn btn-primary btn-sm" onclick="gerarLancamentosSelecionadas()">Gerar lançamentos das selecionadas</button>
+        <button class="btn btn-despesa btn-sm" onclick="excluirNotasSelecionadas()">Excluir selecionadas</button>
       </div>
 
       <div id="tabelaNotas"></div>
@@ -918,6 +932,9 @@ let editingId = null;
 let modalTipo = 'pagar';
 let concSelecaoExtrato = null;
 let notasSelecionadas = new Set();
+let selecionadosPagar = new Set();
+let selecionadosReceber = new Set();
+let listasVisiveisLanc = { pagar: [], receber: [] };
 
 const UNIDADES_PADRAO = ['Luz Inteligência','Impacto Consultoria','Instituto Você','Pessoal'];
 const CATEGORIAS_PAGAR = ['Custo Fixo','Custo Variável','Despesa Operacional','Imposto/Taxa','Folha/Pró-labore','Marketing','Ferramentas/Software','Outros'];
@@ -1155,8 +1172,21 @@ function renderReceber(){
   lista.sort((a,b)=>a.vencimento.localeCompare(b.vencimento));
   renderTabelaLancamentos('tabelaReceber', lista, 'receber');
 }
-function renderTabelaLancamentos(containerId, lista, tipo){
+function renderTabelaLancamentos(containerId, lista, tipo, comSelecao){
+  if(comSelecao===undefined) comSelecao = true;
   const el = document.getElementById(containerId);
+  const selSet = tipo==='pagar' ? selecionadosPagar : selecionadosReceber;
+  if(comSelecao){
+    listasVisiveisLanc[tipo] = lista;
+    Array.from(selSet).forEach(id=>{
+      if(!state.lancamentos.find(l=>l.id===id && l.tipo===tipo)) selSet.delete(id);
+    });
+    const bulkBar = document.getElementById(tipo==='pagar'?'bulkBarPagar':'bulkBarReceber');
+    if(bulkBar){
+      bulkBar.classList.toggle('hidden', selSet.size===0);
+      document.getElementById(tipo==='pagar'?'bulkCountPagar':'bulkCountReceber').textContent = selSet.size;
+    }
+  }
   if(lista.length===0){
     el.innerHTML = `<div class="empty-state">Nenhum lançamento encontrado. ${tipo==='pagar'?'Cadastre uma conta a pagar para começar.':'Cadastre uma conta a receber para começar.'}</div>`;
     return;
@@ -1166,6 +1196,7 @@ function renderTabelaLancamentos(containerId, lista, tipo){
     const st = statusDe(l);
     const stClass = st.toLowerCase();
     return `<tr>
+      ${comSelecao ? `<td class="checkcol"><input type="checkbox" ${selSet.has(l.id)?'checked':''} onchange="toggleSelecaoLancamento('${tipo}', ${l.id})"></td>` : ''}
       <td>${fmtData(l.vencimento)}</td>
       <td><div style="font-weight:600">${l.descricao}</div><div style="color:var(--text-faint);font-size:11.5px">${l.terceiro||''}</div></td>
       <td>${l.unidade}</td>
@@ -1181,12 +1212,51 @@ function renderTabelaLancamentos(containerId, lista, tipo){
       </td>
     </tr>`;
   }).join('');
+  let checkHeader = '';
+  if(comSelecao){
+    const idsVisiveis = lista.map(l=>l.id);
+    const todosMarcados = idsVisiveis.length>0 && idsVisiveis.every(id=>selSet.has(id));
+    checkHeader = `<th class="checkcol"><input type="checkbox" ${todosMarcados?'checked':''} onchange="toggleSelecionarVisiveisLancamentos('${tipo}', this.checked)" title="Selecionar todos os lançamentos desta lista"></th>`;
+  }
   el.innerHTML = `<table>
-    <thead><tr><th>Vencimento</th><th>Descrição</th><th>Unidade</th><th>Categoria</th><th>Status</th><th style="text-align:right">Valor</th><th></th></tr></thead>
+    <thead><tr>${checkHeader}<th>Vencimento</th><th>Descrição</th><th>Unidade</th><th>Categoria</th><th>Status</th><th style="text-align:right">Valor</th><th></th></tr></thead>
     <tbody>${rows}
-      <tr class="totals-row"><td colspan="5">Total (${lista.length} ${lista.length===1?'lançamento':'lançamentos'})</td><td class="num">${fmtMoeda(total)}</td><td></td></tr>
+      <tr class="totals-row"><td colspan="${comSelecao?6:5}">Total (${lista.length} ${lista.length===1?'lançamento':'lançamentos'})</td><td class="num">${fmtMoeda(total)}</td><td></td></tr>
     </tbody>
   </table>`;
+}
+function toggleSelecaoLancamento(tipo, id){
+  const set = tipo==='pagar' ? selecionadosPagar : selecionadosReceber;
+  if(set.has(id)) set.delete(id); else set.add(id);
+  tipo==='pagar' ? renderPagar() : renderReceber();
+}
+function selecionarTodosVisiveisLancamentos(tipo){
+  const set = tipo==='pagar' ? selecionadosPagar : selecionadosReceber;
+  (listasVisiveisLanc[tipo]||[]).forEach(l=>set.add(l.id));
+  tipo==='pagar' ? renderPagar() : renderReceber();
+}
+function toggleSelecionarVisiveisLancamentos(tipo, checked){
+  const set = tipo==='pagar' ? selecionadosPagar : selecionadosReceber;
+  (listasVisiveisLanc[tipo]||[]).forEach(l=> checked ? set.add(l.id) : set.delete(l.id));
+  tipo==='pagar' ? renderPagar() : renderReceber();
+}
+function limparSelecaoLancamentos(tipo){
+  (tipo==='pagar' ? selecionadosPagar : selecionadosReceber).clear();
+  tipo==='pagar' ? renderPagar() : renderReceber();
+}
+function excluirLancamentosSelecionados(tipo){
+  const set = tipo==='pagar' ? selecionadosPagar : selecionadosReceber;
+  if(set.size===0){ showToast('Selecione ao menos um lançamento.'); return; }
+  const qtd = set.size;
+  if(!confirm(`Excluir ${qtd} lançamento(s) selecionado(s)? Essa ação não pode ser desfeita.`)) return;
+  const ids = new Set(set);
+  state.lancamentos = state.lancamentos.filter(l=>!ids.has(l.id));
+  state.extrato.forEach(e=>{ if(ids.has(e.conciliadoCom)) e.conciliadoCom=null; });
+  set.clear();
+  saveData();
+  initFilters();
+  renderAll();
+  showToast(`${qtd} lançamento(s) excluído(s).`);
 }
 
 /* ============ DASHBOARD ============ */
@@ -1316,7 +1386,7 @@ function renderCustos(){
     <div class="badge ${delta>0?'atrasado':'pago'}" style="font-size:12px">${sinal}${delta.toFixed(1)}% vs. mês anterior</div>
   `;
   lista.sort((a,b)=>b.valor-a.valor);
-  renderTabelaLancamentos('tabelaCustos', lista, 'pagar');
+  renderTabelaLancamentos('tabelaCustos', lista, 'pagar', false);
 }
 
 /* ============ NOTAS FISCAIS ============ */
@@ -1506,11 +1576,10 @@ function renderNotas(){
   lista.sort((a,b)=>b.dataEmissao.localeCompare(a.dataEmissao));
 
   const bulkBar = document.getElementById('bulkBarNotas');
-  const idsVisiveis = new Set(lista.filter(n=>n.status==='pendente').map(n=>n.id));
+  const idsVisiveis = new Set(lista.map(n=>n.id));
   Array.from(notasSelecionadas).forEach(id=>{
-    if(!state.notasFiscais.find(n=>n.id===id && n.status==='pendente')) notasSelecionadas.delete(id);
+    if(!state.notasFiscais.find(n=>n.id===id)) notasSelecionadas.delete(id);
   });
-  const selecionadasCount = Array.from(notasSelecionadas).filter(id=>idsVisiveis.has(id) || state.notasFiscais.find(n=>n.id===id && n.status==='pendente')).length;
   bulkBar.classList.toggle('hidden', notasSelecionadas.size===0);
   document.getElementById('bulkCountNotas').textContent = notasSelecionadas.size;
 
@@ -1524,7 +1593,7 @@ function renderNotas(){
     const dirClass = n.direcao==='saida' ? 'saida' : n.direcao==='entrada' ? 'entrada' : 'indefinida';
     const podeGerar = n.status==='pendente';
     return `<tr>
-      <td class="checkcol">${podeGerar ? `<input type="checkbox" ${notasSelecionadas.has(n.id)?'checked':''} onchange="toggleSelecaoNota(${n.id})">` : ''}</td>
+      <td class="checkcol"><input type="checkbox" ${notasSelecionadas.has(n.id)?'checked':''} onchange="toggleSelecaoNota(${n.id})"></td>
       <td>${fmtData(n.dataEmissao)}</td>
       <td><div style="font-weight:600">${n.tipoDoc} ${n.numero||'—'}${n.serie?'/'+n.serie:''}</div><div style="color:var(--text-faint);font-size:11px">${n.chave || n.arquivo}${n.cfop?' · CFOP '+n.cfop:''}</div></td>
       <td>${n.emitenteNome||'—'}</td>
@@ -1542,7 +1611,7 @@ function renderNotas(){
   }).join('');
   const todosVisiveisMarcados = idsVisiveis.size>0 && Array.from(idsVisiveis).every(id=>notasSelecionadas.has(id));
   el.innerHTML = `<table>
-    <thead><tr><th class="checkcol"><input type="checkbox" ${todosVisiveisMarcados?'checked':''} ${idsVisiveis.size===0?'disabled':''} onchange="toggleSelecionarVisiveisNotas(this.checked)" title="Selecionar todas as notas pendentes desta lista"></th><th>Emissão</th><th>Documento</th><th>Emitente</th><th>Destinatário</th><th style="text-align:right">Valor</th><th>Direção</th><th>Status</th><th></th></tr></thead>
+    <thead><tr><th class="checkcol"><input type="checkbox" ${todosVisiveisMarcados?'checked':''} ${idsVisiveis.size===0?'disabled':''} onchange="toggleSelecionarVisiveisNotas(this.checked)" title="Selecionar todas as notas desta lista"></th><th>Emissão</th><th>Documento</th><th>Emitente</th><th>Destinatário</th><th style="text-align:right">Valor</th><th>Direção</th><th>Status</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -1551,27 +1620,43 @@ function toggleSelecaoNota(id){
   if(notasSelecionadas.has(id)) notasSelecionadas.delete(id); else notasSelecionadas.add(id);
   renderNotas();
 }
+function selecionarTodasNotas(){
+  notasFiscaisVisiveisAtual().forEach(n=>notasSelecionadas.add(n.id));
+  renderNotas();
+}
 function selecionarTodasPendentesNotas(){
   state.notasFiscais.filter(n=>n.status==='pendente').forEach(n=>notasSelecionadas.add(n.id));
   renderNotas();
 }
-function toggleSelecionarVisiveisNotas(checked){
+function notasFiscaisVisiveisAtual(){
   const busca = document.getElementById('buscaNotas').value.toLowerCase();
   const fStatus = document.getElementById('filtroStatusNotas').value;
   const fDirecao = document.getElementById('filtroDirecaoNotas').value;
-  const visiveis = state.notasFiscais.filter(n=>{
-    if(n.status!=='pendente') return false;
+  return state.notasFiscais.filter(n=>{
     if(fStatus && n.status!==fStatus) return false;
     if(fDirecao && (n.direcao||'indefinida')!==fDirecao) return false;
     if(busca && !((n.numero||'')+' '+(n.emitenteNome||'')+' '+(n.destinatarioNome||'')+' '+(n.chave||'')).toLowerCase().includes(busca)) return false;
     return true;
   });
-  visiveis.forEach(n=> checked ? notasSelecionadas.add(n.id) : notasSelecionadas.delete(n.id));
+}
+function toggleSelecionarVisiveisNotas(checked){
+  notasFiscaisVisiveisAtual().forEach(n=> checked ? notasSelecionadas.add(n.id) : notasSelecionadas.delete(n.id));
   renderNotas();
 }
 function limparSelecaoNotas(){
   notasSelecionadas.clear();
   renderNotas();
+}
+function excluirNotasSelecionadas(){
+  if(notasSelecionadas.size===0){ showToast('Selecione ao menos uma nota fiscal.'); return; }
+  const qtd = notasSelecionadas.size;
+  if(!confirm(`Excluir ${qtd} nota(s) fiscal(is) selecionada(s)? Essa ação não pode ser desfeita.`)) return;
+  const ids = new Set(notasSelecionadas);
+  state.notasFiscais = state.notasFiscais.filter(n=>!ids.has(n.id));
+  notasSelecionadas.clear();
+  saveData();
+  renderNotas();
+  showToast(`${qtd} nota(s) fiscal(is) excluída(s).`);
 }
 
 function criarLancamentoDeNota(n){
